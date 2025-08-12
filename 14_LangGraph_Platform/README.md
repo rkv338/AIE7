@@ -53,10 +53,27 @@ Run the repository and complete the following:
 
 What is the purpose of the `chunk_overlap` parameter when using `RecursiveCharacterTextSplitter` to prepare documents for RAG, and what trade-offs arise as you increase or decrease its value?
 
+##### ✅ Answer:
+Purpose of chunk_overlap: To carry a slice of text from the end of one chunk into the start of the next, preserving context that spans chunk boundaries so the retriever can capture cross-boundary facts.
+
+Increase overlap
+Pros: Better context continuity, fewer “cut-off” facts, improved recall and answer quality.
+Cons: More (and more redundant) chunks, higher embedding/storage cost, longer indexing/query times, potential precision drop due to duplicate matches.
+
+If you decrease overlap
+Pros: Fewer chunks → cheaper and faster indexing/retrieval.
+Cons: Higher risk of missing boundary context, worse recall on facts split across chunks.
+
 #### ❓ Question:
 
 Your retriever is configured with `search_kwargs={"k": 5}`. How would adjusting `k` likely affect RAGAS metrics such as Context Precision and Context Recall in practice, and why?
 
+##### ✅ Answer:
+Increasing k raises Context Recall because retrieving more chunks increases the probability that the gold/supporting evidence is included; but it typically lowers Context Precision since the larger set brings in more irrelevant text, diluting the proportion of relevant context and adding noise for the LLM. Decreasing k has the opposite effect: fewer chunks reduce noise so a higher share of the retrieved context is relevant (precision up), but with fewer candidates the chance of missing necessary evidence increases (recall down). Choose a moderate k via evaluation, or pair a higher k with re-ranking/filters to keep precision high.
+
 #### ❓ Question:
 
 Compare the `agent` and `agent_helpful` assistants defined in `langgraph.json`. Where does the helpfulness evaluator fit in the graph, and under what condition should execution route back to the agent vs. terminate?
+
+##### ✅ Answer:
+The agent assistant (simple_agent) runs the model and, if the last AI message contains tool_calls, routes to the action tool node; otherwise it terminates. The agent_helpful assistant (agent_with_helpfulness) inserts a post-response helpfulness node after the agent whenever there are no pending tool_calls: the evaluator returns HELPFULNESS:Y to terminate, HELPFULNESS:N to route back to the agent for another attempt, and HELPFULNESS:END to stop via a loop guard when len(messages) > 10. Tool use still loops action → agent as in the simple agent.
