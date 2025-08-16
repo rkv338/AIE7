@@ -81,15 +81,59 @@ uv run python app/test_client.py
 
 Build a LangGraph Graph to "use" your application.
 
-Do this by creating a Simple Agent that can make API calls to the 🤖Agent Node above through the A2A protocol. 
+Do this by creating a Simple Agent that can make API calls to the 🤖Agent Node above through the A2A protocol.
 
 ### ❓ Question #1:
 
 What are the core components of an `AgentCard`?
 
+#### ✅ Answer:
+
+Based on the implementation in `app/__main__.py`, the core components of an `AgentCard` are:
+
+1. **Basic Identity:**
+   - `name`: The agent's display name (e.g., "General Purpose Agent")
+   - `description`: A human-readable description of the agent's capabilities
+   - `url`: The base URL where the agent is accessible
+   - `version`: The agent's version identifier
+
+2. **Content Type Support:**
+   - `default_input_modes`: Supported input content types (e.g., ['text', 'text/plain'])
+   - `default_output_modes`: Supported output content types
+
+3. **Capabilities:**
+   - `capabilities`: An `AgentCapabilities` object specifying what the agent can do
+     - `streaming`: Whether the agent supports streaming responses
+     - `push_notifications`: Whether the agent supports push notifications
+
+4. **Skills/Tools:**
+   - `skills`: A list of `AgentSkill` objects describing the agent's specific abilities
+     - Each skill has: `id`, `name`, `description`, `tags`, and `examples`
+     - Example skills: web search, academic paper search, document retrieval
+
+The AgentCard serves as a "business card" that other agents can read to understand how to interact with this agent and what services it provides.
+
 ### ❓ Question #2:
 
 Why is A2A (and other such protocols) important in your own words?
+
+#### ✅ Answer:
+
+A2A (Agent-to-Agent) protocols are critically important for several reasons:
+
+1. **Interoperability**: They enable different AI agents to communicate seamlessly, regardless of their underlying implementation or framework. This is like having a universal language for agents.
+
+2. **Composability**: A2A protocols allow agents to be combined and chained together to solve complex problems that no single agent could handle alone. Each agent can specialize in specific domains while leveraging others' expertise.
+
+3. **Scalability**: Instead of building monolithic agents with every possible capability, we can create specialized agents that work together through standardized protocols. This makes systems more maintainable and scalable.
+
+4. **Discovery and Capability Negotiation**: Through AgentCards and similar mechanisms, agents can advertise their capabilities and discover what other agents can do, enabling dynamic composition of AI workflows.
+
+5. **Quality Assurance**: The helpfulness evaluation loop demonstrates how agents can validate and improve each other's outputs, leading to more reliable AI systems.
+
+6. **Future-Proofing**: As AI systems become more distributed and specialized, having standardized communication protocols ensures that new agents can integrate with existing ecosystems without requiring custom integration for each pair of agents.
+
+A2A protocols represent a shift from isolated AI tools to collaborative AI ecosystems, which is essential as AI capabilities become more sophisticated and specialized.
 
 ### 🚧 Advanced Build:
 
