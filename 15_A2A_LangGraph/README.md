@@ -88,8 +88,7 @@ Do this by creating a Simple Agent that can make API calls to the 🤖Agent Node
 What are the core components of an `AgentCard`?
 
 #### ✅ Answer:
-
-Based on the implementation in `app/__main__.py`, the core components of an `AgentCard` are:
+The core components of an `AgentCard` are:
 
 1. **Basic Identity:**
    - `name`: The agent's display name (e.g., "General Purpose Agent")

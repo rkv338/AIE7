@@ -168,19 +168,8 @@ class SimpleAgent:
                 # Send message and get response
                 response = await client.send_message(request)
                 
-                # Extract response content
-                response_content = ""
-                if hasattr(response, 'root') and hasattr(response.root, 'result'):
-                    result = response.root.result
-                    if hasattr(result, 'artifacts') and result.artifacts:
-                        for artifact in result.artifacts:
-                            if hasattr(artifact, 'content') and artifact.content:
-                                for part in artifact.content:
-                                    if hasattr(part, 'root') and hasattr(part.root, 'text'):
-                                        response_content += part.root.text + "\n"
-                
-                if not response_content:
-                    response_content = "Received response from A2A agent, but content could not be extracted."
+                # Extract response content with improved error handling
+                response_content = self._extract_response_content(response)
                 
                 logger.info("Successfully received response from A2A Agent")
                 
@@ -196,6 +185,135 @@ class SimpleAgent:
                 "a2a_response": error_msg,
                 "messages": [AIMessage(content=error_msg)]
             }
+    
+    def _extract_response_content(self, response) -> str:
+        """
+        Extract content from A2A response with robust error handling.
+        
+        This method tries multiple approaches to extract meaningful content
+        from the A2A response structure.
+        """
+        logger.info(f"Extracting content from response type: {type(response)}")
+        
+        try:
+            # Method 1: Try the standard A2A structure
+            if hasattr(response, 'root') and hasattr(response.root, 'result'):
+                result = response.root.result
+                logger.info(f"Found result object: {type(result)}")
+                
+                # Check for artifacts (main A2A response structure)
+                if hasattr(result, 'artifacts') and result.artifacts:
+                    logger.info(f"Found {len(result.artifacts)} artifacts")
+                    content_parts = []
+                    
+                    for i, artifact in enumerate(result.artifacts):
+                        logger.info(f"Processing artifact {i}: {type(artifact)}")
+                        
+                        # Check for 'parts' field (new structure)
+                        if hasattr(artifact, 'parts') and artifact.parts:
+                            for j, part in enumerate(artifact.parts):
+                                logger.info(f"Processing part {j}: {type(part)}")
+                                
+                                # Extract text from part
+                                text_content = None
+                                if hasattr(part, 'text'):
+                                    text_content = part.text
+                                elif hasattr(part, 'content'):
+                                    text_content = str(part.content)
+                                
+                                if text_content:
+                                    content_parts.append(str(text_content))
+                                    logger.info(f"Extracted text from part {j}: {len(str(text_content))} chars")
+                        
+                        # Check for 'content' field (old structure)
+                        elif hasattr(artifact, 'content') and artifact.content:
+                            for j, part in enumerate(artifact.content):
+                                logger.info(f"Processing content part {j}: {type(part)}")
+                                
+                                # Try different ways to extract text
+                                text_content = None
+                                if hasattr(part, 'root') and hasattr(part.root, 'text'):
+                                    text_content = part.root.text
+                                elif hasattr(part, 'text'):
+                                    text_content = part.text
+                                elif hasattr(part, 'content'):
+                                    text_content = str(part.content)
+                                
+                                if text_content:
+                                    content_parts.append(str(text_content))
+                                    logger.info(f"Extracted text from part {j}: {len(str(text_content))} chars")
+                    
+                    if content_parts:
+                        combined_content = "\n".join(content_parts)
+                        logger.info(f"Successfully extracted {len(combined_content)} characters from artifacts")
+                        return combined_content
+                
+                # Check for direct message content in result
+                if hasattr(result, 'message'):
+                    logger.info("Found direct message in result")
+                    return str(result.message)
+                
+                # Check for content field in result
+                if hasattr(result, 'content'):
+                    logger.info("Found content field in result")
+                    return str(result.content)
+            
+            # Method 2: Try model_dump if available (Pydantic models)
+            if hasattr(response, 'model_dump'):
+                logger.info("Trying model_dump approach")
+                response_dict = response.model_dump()
+                logger.info(f"Response structure: {list(response_dict.keys())}")
+                
+                # Navigate through common response structures
+                if 'result' in response_dict:
+                    result = response_dict['result']
+                    if 'artifacts' in result:
+                        artifacts = result['artifacts']
+                        content_parts = []
+                        for artifact in artifacts:
+                            # New structure: parts field
+                            if 'parts' in artifact:
+                                for part in artifact['parts']:
+                                    if 'text' in part:
+                                        content_parts.append(part['text'])
+                                    elif 'content' in part:
+                                        content_parts.append(str(part['content']))
+                            # Old structure: content field
+                            elif 'content' in artifact:
+                                for part in artifact['content']:
+                                    if 'root' in part and 'text' in part['root']:
+                                        content_parts.append(part['root']['text'])
+                                    elif 'text' in part:
+                                        content_parts.append(part['text'])
+                        
+                        if content_parts:
+                            combined_content = "\n".join(content_parts)
+                            logger.info(f"Extracted content via model_dump: {len(combined_content)} chars")
+                            return combined_content
+            
+            # Method 3: Try to convert to string and look for patterns
+            response_str = str(response)
+            logger.info(f"Response string length: {len(response_str)}")
+            
+            # Look for JSON-like content
+            if 'text' in response_str and len(response_str) > 50:
+                logger.info("Found text content in string representation")
+                return f"Response content available (see logs for details): {response_str[:200]}..."
+            
+            # Method 4: Check direct attributes
+            for attr in ['content', 'text', 'message', 'data']:
+                if hasattr(response, attr):
+                    value = getattr(response, attr)
+                    if value and str(value).strip():
+                        logger.info(f"Found content in {attr} attribute")
+                        return str(value)
+            
+            logger.warning("Could not extract meaningful content from response")
+            return f"Response received but content extraction failed. Response type: {type(response)}"
+            
+        except Exception as e:
+            logger.error(f"Error extracting response content: {e}", exc_info=True)
+            return f"Response parsing error: {str(e)}. Response type: {type(response)}"
     
     def _process_response_node(self, state: SimpleAgentState) -> Dict[str, Any]:
         """
@@ -263,7 +381,85 @@ class SimpleAgent:
             return "No response generated."
 
 
+async def debug_a2a_connection():
+    """Debug function to test A2A server connectivity and response structure."""
+    print("🔧 Starting A2A Debug Session...")
+    
+    async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as httpx_client:
+        try:
+            # Test 1: Basic connectivity
+            print("\n1️⃣ Testing basic server connectivity...")
+            base_url = "http://localhost:10000"
+            response = await httpx_client.get(base_url)
+            print(f"   Server status: {response.status_code}")
+            
+            # Test 2: Agent card discovery
+            print("\n2️⃣ Testing agent card discovery...")
+            resolver = A2ACardResolver(
+                httpx_client=httpx_client,
+                base_url=base_url,
+            )
+            
+            try:
+                agent_card = await resolver.get_agent_card()
+                print(f"   ✅ Agent card retrieved: {type(agent_card)}")
+                print(f"   Agent name: {agent_card.name if hasattr(agent_card, 'name') else 'Unknown'}")
+            except Exception as e:
+                print(f"   ❌ Agent card error: {e}")
+                return
+            
+            # Test 3: Simple message test
+            print("\n3️⃣ Testing simple message...")
+            client = A2AClient(
+                httpx_client=httpx_client, 
+                agent_card=agent_card
+            )
+            
+            send_message_payload = {
+                'message': {
+                    'role': 'user',
+                    'parts': [
+                        {'kind': 'text', 'text': 'Hello, can you tell me what 2+2 equals?'}
+                    ],
+                    'message_id': uuid4().hex,
+                },
+            }
+            
+            request = SendMessageRequest(
+                id=str(uuid4()), 
+                params=MessageSendParams(**send_message_payload)
+            )
+            
+            response = await client.send_message(request)
+            print(f"   Response received: {type(response)}")
+            
+            # Test 4: Response extraction
+            print("\n4️⃣ Testing response extraction...")
+            agent = SimpleAgent()
+            
+            # Show the full response structure for debugging
+            if hasattr(response, 'model_dump'):
+                import json
+                response_dict = response.model_dump()
+                print(f"   Full response structure:")
+                print(f"   {json.dumps(response_dict, indent=2)[:500]}...")
+            
+            extracted_content = agent._extract_response_content(response)
+            print(f"   Extracted content length: {len(extracted_content)}")
+            print(f"   Content preview: {extracted_content[:200]}...")
+            
+        except Exception as e:
+            print(f"❌ Debug session failed: {e}")
+            logger.error(f"Debug error: {e}", exc_info=True)
+
+
 async def main():
+    """Main function with debug option."""
+    import sys
+    
+    if len(sys.argv) > 1 and sys.argv[1] == "debug":
+        await debug_a2a_connection()
+        return
     
     # Create Simple Agent
     agent = SimpleAgent()
@@ -271,7 +467,7 @@ async def main():
     # Example queries to demonstrate different capabilities
     queries = [
         "What are the latest developments in artificial intelligence?",
-        "Find recent papers on transformer architectures",
+        "Find recent papers on transformer architectures", 
         "What are the current trends in machine learning?",
     ]
     
