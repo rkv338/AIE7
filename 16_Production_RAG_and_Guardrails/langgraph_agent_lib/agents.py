@@ -111,3 +111,86 @@ def create_langgraph_agent(
     graph.add_edge("action", "agent")
     
     return graph.compile()
+
+
+def create_langgraph_agent_with_helpfulness_check(
+    model_name: str = "gpt-4",
+    temperature: float = 0.1,
+    tools: Optional[List] = None,
+    rag_chain: Optional[ProductionRAGChain] = None
+):
+    """Create a LangGraph agent with helpfulness check.
+    
+    Args:
+        model_name: OpenAI model name
+        temperature: Model temperature
+        tools: List of tools to bind to the model
+        rag_chain: Optional RAG chain to include as a tool
+        
+    Returns:
+        Compiled LangGraph agent with helpfulness check
+    """
+    if tools is None:
+        tools = get_default_tools(rag_chain)
+    
+    # Get model and bind tools
+    model = get_openai_model(model_name=model_name, temperature=temperature)
+    model_with_tools = model.bind_tools(tools)
+    
+    def call_model(state: AgentState) -> Dict[str, Any]:
+        """Invoke the model with messages."""
+        messages = state["messages"]
+        response = model_with_tools.invoke(messages)
+        return {"messages": [response]}
+    
+    def helpfulness_check(state: AgentState) -> Dict[str, Any]:
+        """Check if the response is helpful and complete."""
+        messages = state["messages"]
+        last_message = messages[-1]
+        
+        # Create a helpfulness check prompt
+        check_prompt = f"""
+        Please evaluate if the following response is helpful and complete for the user's query.
+        
+        User's original query: {messages[0].content if messages else ""}
+        
+        Assistant's response: {last_message.content}
+        
+        Is this response helpful and complete? Respond with only "YES" or "NO".
+        """
+        
+        check_model = get_openai_model(model_name=model_name, temperature=0.0)
+        check_response = check_model.invoke([{"role": "user", "content": check_prompt}])
+        
+        is_helpful = "YES" in check_response.content.upper()
+        
+        return {"is_helpful": is_helpful}
+    
+    def should_continue(state: AgentState):
+        """Route to tools if the last message has tool calls."""
+        last_message = state["messages"][-1]
+        if getattr(last_message, "tool_calls", None):
+            return "action"
+        return "helpfulness_check"
+    
+    def should_finish(state: AgentState):
+        """Decide whether to finish or retry based on helpfulness check."""
+        if state.get("is_helpful", True):
+            return END
+        return "agent"
+    
+    # Build graph
+    graph = StateGraph(AgentState)
+    tool_node = ToolNode(tools)
+    
+    graph.add_node("agent", call_model)
+    graph.add_node("action", tool_node)
+    graph.add_node("helpfulness_check", helpfulness_check)
+    
+    graph.set_entry_point("agent")
+    graph.add_conditional_edges("agent", should_continue, {"action": "action", "helpfulness_check": "helpfulness_check"})
+    graph.add_edge("action", "agent")
+    graph.add_conditional_edges("helpfulness_check", should_finish, {"agent": "agent", END: END})
+    
+    return graph.compile()
+
